@@ -1,16 +1,87 @@
 import { Hono } from "hono";
 import { routeAgentRequest } from "agents";
+import { type CallLogStoreStub } from "./types";
+import { z } from "zod";
 import type { Env } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
 
+const CollectInfoSchema = z.object({
+  name: z.string(),
+  phone: z.string(),
+  email: z.string().optional(),
+  reason: z.string(),
+  notes: z.string().optional(),
+  callSid: z.string(),
+  timestamp: z.string(),
+});
+
+function requireApiKey(c: { env: Env; req: { header: (k: string) => string | undefined } }) {
+  const expected = c.env.LOGS_API_KEY?.trim();
+  if (!expected) throw new Error("LOGS_API_KEY is not configured");
+  const provided = c.req.header("authorization") ?? "";
+  const m = provided.match(/^Bearer\s+(.+)$/i);
+  const token = m?.[1] ?? provided;
+  if (!token || token !== expected) throw new Error("Unauthorized");
+}
+
 app.get("/", (c) => c.json({ name: "phoneline", status: "ok" }));
+
+// Optional but useful for testing: accept collect_info payloads and persist them
+// so you can fetch a call log later.
+app.all("/webhook/collect-info", async (c) => {
+  if (c.req.method !== "POST" && c.req.method !== "GET") return c.text("", 404);
+  try {
+    requireApiKey(c);
+  } catch (e) {
+    return c.text("Unauthorized", 401);
+  }
+
+  if (c.req.method === "GET") {
+    return c.json({ ok: true, usage: "POST a CollectInfoPayload" });
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = CollectInfoSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ ok: false, error: parsed.error.flatten() }, 400);
+  }
+
+  const payload = parsed.data;
+
+  const store = c.env.CallLogStore.get(
+    c.env.CallLogStore.idFromName("singleton")
+  ) as unknown as CallLogStoreStub;
+
+  await store.recordCollectInfo(payload);
+  return c.json({ ok: true });
+});
+
+// Secure endpoint to view what happened for a given callSid.
+app.get("/call-log/:callSid", async (c) => {
+  try {
+    requireApiKey(c);
+  } catch {
+    return c.text("Unauthorized", 401);
+  }
+
+  const callSid = c.req.param("callSid");
+  const store = c.env.CallLogStore.get(
+    c.env.CallLogStore.idFromName("singleton")
+  ) as unknown as CallLogStoreStub;
+
+  const log = await store.getCallLog(callSid);
+  return c.json(log);
+});
 
 /**
  * Twilio webhook — called when a phone number receives an incoming call.
- * Returns TwiML that opens a bidirectional media stream to the voice agent.
- */
-app.post("/twiml", async (c) => {
+  * Returns TwiML that opens a bidirectional media stream to the voice agent.
+  */
+// Twilio uses HTTP POST for the Voice webhook.
+// Accept GET too so local probes (or misconfigured webhook methods) still
+// return valid TwiML.
+app.all("/twiml", async (c) => {
   const body = await c.req.text();
   const params = Object.fromEntries(new URLSearchParams(body));
   const callSid = params["CallSid"] ?? "unknown";
@@ -21,7 +92,7 @@ app.post("/twiml", async (c) => {
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${host}/agents/VoiceAgent/${callSid}/media-stream">
+    <Stream url="wss://${host}/agents/voice-agent/${callSid}/media-stream">
       <Parameter name="CallSid" value="${callSid}" />
       <Parameter name="From" value="${from}" />
       <Parameter name="To" value="${to}" />

@@ -7,8 +7,12 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "VOICE_AGENT",
+        "name": "VoiceAgent",
         "class_name": "VoiceAgent"
+      },
+      {
+        "name": "CallLogStore",
+        "class_name": "CallLogStore"
       }
     ]
   },

@@ -20,9 +20,19 @@ export function createTools(env: Env, callSid: string) {
     }),
     execute: async (input) => {
       const payload = { ...input, callSid, timestamp: new Date().toISOString() };
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      // If you're using this repo's built-in webhook receiver, it will
+      // validate this header.
+      if (env.LOGS_API_KEY?.trim()) {
+        headers["Authorization"] = `Bearer ${env.LOGS_API_KEY}`;
+      }
+
       const res = await fetch(env.WEBHOOK_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(`collect_info webhook failed: ${res.status} ${res.statusText}`);
