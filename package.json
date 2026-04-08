@@ -1,24 +1,39 @@
 {
   "name": "phoneline",
   "version": "0.0.1",
-  "description": "Minimal voice AI agent on Cloudflare Workers + Twilio + OpenAI Realtime",
+  "description": "Minimal phone support agent on Cloudflare Workers — answers calls via Twilio, collects info, and transfers to humans using OpenAI Realtime",
   "type": "module",
+  "keywords": [
+    "cloudflare-workers",
+    "durable-objects",
+    "twilio",
+    "openai-realtime",
+    "voice-agent",
+    "phone-agent",
+    "agents-sdk",
+    "call-center",
+    "ivr",
+    "ai-voice"
+  ],
   "scripts": {
     "start": "wrangler dev",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "logs": "wrangler tail",
+    "test:webhook": "bash examples/test-webhook.sh",
+    "test:call-log": "bash examples/test-call-log.sh"
   },
   "dependencies": {
-    "agents": "^0.7.6",
-    "hono": "^4.7.0",
-    "@openai/agents": "^0.5.4",
-    "@openai/agents-extensions": "^0.5.4",
+    "agents": "^0.10.0",
+    "hono": "^4.12.12",
+    "@openai/agents": "^0.8.3",
+    "@openai/agents-extensions": "^0.8.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250313.0",
-    "typescript": "^5.8.0",
-    "wrangler": "^4.0.0"
+    "@cloudflare/workers-types": "^4.20260408.1",
+    "typescript": "^6.0.2",
+    "wrangler": "^4.81.0"
   }
 }
