@@ -12,10 +12,13 @@ const OPENAI_REALTIME_COMMON_HEADERS = {
   "X-OpenAI-Agents-SDK": "openai-agents-sdk",
 } as const;
 
-// ── Customize these two constants ──────────────────────────────────────────
-// GREETING is spoken aloud as soon as the call connects (before the caller
-// says anything). SYSTEM_PROMPT tells the LLM how to behave for the rest of
-// the conversation. Edit them here — no env vars needed.
+// ── Customize these three constants ────────────────────────────────────────
+// MODEL — which OpenAI Realtime model to use.
+// GREETING — spoken aloud as soon as the call connects.
+// SYSTEM_PROMPT — tells the LLM how to behave.
+// Edit them here — no env vars needed.
+
+const MODEL = "gpt-4o-realtime-preview";
 
 const GREETING =
   "Hi, thanks for calling! How can I help you today?";
@@ -118,7 +121,7 @@ export class VoiceAgent extends Agent<Env> {
       console.error(`[phoneline] transport error (${callSid}):`, error);
     });
 
-    const session = new RealtimeSession(agent, { transport });
+    const session = new RealtimeSession(agent, { model: MODEL, transport });
     this.#sessions.set(connection.id, session);
 
     session.on("error", (error) => {
