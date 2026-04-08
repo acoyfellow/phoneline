@@ -1,4 +1,5 @@
-import type { CollectInfoPayload } from "./types";
+import { DurableObject } from "cloudflare:workers";
+import type { CollectInfoPayload, Env } from "./types";
 
 type CallClose = {
   code: number;
@@ -21,13 +22,7 @@ function callLogKey(callSid: string) {
   return `callLog:${callSid}`;
 }
 
-export class CallLogStore {
-  state: DurableObjectState;
-
-  constructor(state: DurableObjectState) {
-    this.state = state;
-  }
-
+export class CallLogStore extends DurableObject<Env> {
   async initCall(callSid: string, connectedAt: string) {
     const log = (await this.get(callSid)) ?? { callSid };
     await this.set({ ...log, connectedAt });
@@ -52,25 +47,25 @@ export class CallLogStore {
     return (await this.get(callSid)) ?? { callSid };
   }
 
-  async get(callSid: string): Promise<CallLog | undefined> {
-    return (await this.state.storage.get(callLogKey(callSid))) as CallLog | undefined;
+  private async get(callSid: string): Promise<CallLog | undefined> {
+    return (await this.ctx.storage.get(callLogKey(callSid))) as CallLog | undefined;
   }
 
-  async set(log: CallLog) {
+  private async set(log: CallLog) {
     const callSid = log.callSid;
 
     // Update LRU order.
-    const order = (await this.state.storage.get<string[]>("order")) ?? [];
+    const order = (await this.ctx.storage.get<string[]>("order")) ?? [];
     const without = order.filter((id) => id !== callSid);
     without.push(callSid);
 
     // Evict oldest if needed.
     while (without.length > MAX_CALL_LOGS) {
       const evicted = without.shift();
-      if (evicted) await this.state.storage.delete(callLogKey(evicted));
+      if (evicted) await this.ctx.storage.delete(callLogKey(evicted));
     }
 
-    await this.state.storage.put("order", without);
-    await this.state.storage.put(callLogKey(callSid), log);
+    await this.ctx.storage.put("order", without);
+    await this.ctx.storage.put(callLogKey(callSid), log);
   }
 }

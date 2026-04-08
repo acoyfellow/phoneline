@@ -4,6 +4,7 @@
   "description": "Minimal voice AI agent on Cloudflare Workers + Twilio + OpenAI Realtime",
   "type": "module",
   "scripts": {
+    "start": "wrangler dev",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit"

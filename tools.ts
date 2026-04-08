@@ -2,9 +2,7 @@ import { tool } from "@openai/agents/realtime";
 import { z } from "zod";
 import type { Env } from "./types";
 
-/**
- * Creates the two voice agent tools, closed over env + call context.
- */
+// Creates the two voice agent tools, closed over env + call context.
 export function createTools(env: Env, callSid: string) {
   const collectInfo = tool({
     name: "collect_info",

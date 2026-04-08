@@ -1,10 +1,20 @@
 import { Hono } from "hono";
 import { routeAgentRequest } from "agents";
-import { type CallLogStoreStub } from "./types";
 import { z } from "zod";
 import type { Env } from "./types";
+import type { CallLogStore } from "./call-log-store";
 
 const app = new Hono<{ Bindings: Env }>();
+
+// Escape a string for safe inclusion in XML/TwiML.
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
 const CollectInfoSchema = z.object({
   name: z.string(),
@@ -51,7 +61,7 @@ app.all("/webhook/collect-info", async (c) => {
 
   const store = c.env.CallLogStore.get(
     c.env.CallLogStore.idFromName("singleton")
-  ) as unknown as CallLogStoreStub;
+  ) as DurableObjectStub<CallLogStore>;
 
   await store.recordCollectInfo(payload);
   return c.json({ ok: true });
@@ -68,26 +78,23 @@ app.get("/call-log/:callSid", async (c) => {
   const callSid = c.req.param("callSid");
   const store = c.env.CallLogStore.get(
     c.env.CallLogStore.idFromName("singleton")
-  ) as unknown as CallLogStoreStub;
+  ) as DurableObjectStub<CallLogStore>;
 
   const log = await store.getCallLog(callSid);
   return c.json(log);
 });
 
-/**
- * Twilio webhook — called when a phone number receives an incoming call.
-  * Returns TwiML that opens a bidirectional media stream to the voice agent.
-  */
-// Twilio uses HTTP POST for the Voice webhook.
+// Twilio webhook — called when a phone number receives an incoming call.
+// Returns TwiML that opens a bidirectional media stream to the voice agent.
 // Accept GET too so local probes (or misconfigured webhook methods) still
 // return valid TwiML.
 app.all("/twiml", async (c) => {
   const body = await c.req.text();
   const params = Object.fromEntries(new URLSearchParams(body));
-  const callSid = params["CallSid"] ?? "unknown";
-  const from = params["From"] ?? "";
-  const to = params["To"] ?? "";
-  const host = c.req.header("host")!;
+  const callSid = escapeXml(params["CallSid"] ?? "unknown");
+  const from = escapeXml(params["From"] ?? "");
+  const to = escapeXml(params["To"] ?? "");
+  const host = escapeXml(c.req.header("host")!);
 
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -103,7 +110,7 @@ app.all("/twiml", async (c) => {
   return c.body(twiml, 200, { "Content-Type": "text/xml" });
 });
 
-/** Route all agent WebSocket + HTTP traffic to Durable Objects */
+// Route all agent WebSocket + HTTP traffic to Durable Objects.
 app.all("/agents/*", async (c) => {
   const res = await routeAgentRequest(c.req.raw, c.env);
   return res ?? c.notFound();
@@ -111,3 +118,4 @@ app.all("/agents/*", async (c) => {
 
 export default app;
 export { VoiceAgent } from "./agent";
+export { CallLogStore } from "./call-log-store";

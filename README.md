@@ -42,6 +42,8 @@ This example uses the `agents` Durable Object routing to receive the Twilio WebS
 If you want to reuse this integration elsewhere, the reusable pieces to extract are:
 `shouldSendProtocolMessages() => false`, the Workers-friendly `createWebSocket` transport shim, and the “start realtime connect in the background” handshake pattern.
 
+> **Typing note:** A few `as any` casts remain at the boundary with `@openai/agents-extensions`, which expects Node `ws` WebSocket types that don't match the Workers runtime. These can't be removed without upstream type changes to that package.
+
 ## Prerequisites
 
 - **Node.js** `>=20.19.0` (run `nvm use` — `.nvmrc` is included)
@@ -72,10 +74,11 @@ Edit `.dev.vars` with real values:
 | `OPENAI_API_KEY`    | Yes      | OpenAI API key with Realtime access              |
 | `TWILIO_ACCOUNT_SID`| Yes     | Twilio Account SID (starts with `AC`)            |
 | `TWILIO_AUTH_TOKEN` | Yes      | Twilio Auth Token                                |
-| `WEBHOOK_URL`       | Yes      | URL where `collect_info` POSTs caller data       |
-| `FORWARD_NUMBER`    | Yes      | Phone number for call transfers (e.g. `+15551234567`) |
-| `SYSTEM_PROMPT`     | No       | Custom system prompt (sensible default included) |
+| `WEBHOOK_URL`       | Yes      | URL where `collect_info` POSTs caller data (see note below) |
+| `FORWARD_NUMBER`    | Yes      | Phone number for call transfers — **must differ from the Twilio number** |
 | `LOGS_API_KEY`      | Optional | Enables the built-in webhook + logs endpoints |
+
+**`WEBHOOK_URL` tip:** If you don't have a webhook receiver yet, use [webhook.site](https://webhook.site) for testing, or set it to your own worker's `/webhook/collect-info` endpoint after deploying (see "Built-in Webhook Receiver" below). Note: you won't know your deployed URL until after the first `npm run deploy`.
 
 ### 3. Start the worker
 
@@ -83,7 +86,7 @@ Edit `.dev.vars` with real values:
 npm run dev
 ```
 
-Verify it's running:
+Verify it's running (use the local port `wrangler dev` prints if it’s not 8787):
 
 ```sh
 curl http://localhost:8787/
@@ -111,8 +114,8 @@ Pick one:
 3. Set the webhook to:
     ```
     https://<public-url>/twiml
-    ```
- Method: **HTTP POST**
+     ```
+   Method: **HTTP POST**
 
 ### 6. Call the number
 
@@ -131,7 +134,6 @@ wrangler secret put WEBHOOK_URL
 wrangler secret put FORWARD_NUMBER
 # optional but recommended if you want the built-in log viewer
 wrangler secret put LOGS_API_KEY
-wrangler secret put SYSTEM_PROMPT
 ```
 
 ### 2. Deploy
@@ -147,6 +149,20 @@ Set your number's voice webhook to the `workers.dev` URL shown by `wrangler depl
 ```
 https://phoneline.<something>.workers.dev/twiml
 ```
+
+## Operational Checklist
+
+Before you make a test call, confirm:
+
+- Your Twilio voice webhook points to `.../twiml` via HTTP POST.
+- `OPENAI_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `WEBHOOK_URL`, and `FORWARD_NUMBER` are set (local: `.dev.vars`; prod: `wrangler secret put`).
+- If you want call logs: set `LOGS_API_KEY` and use the endpoints below with `Authorization: Bearer <LOGS_API_KEY>`.
+
+## Troubleshooting
+
+- Twilio says “application error” immediately: verify the webhook method is **POST** and that it hits `/twiml` on the correct URL.
+- Call connects then hangs up: check the Worker logs for the DO/WebSocket and verify `OPENAI_API_KEY` + `WEBHOOK_URL` are configured.
+- `collect_info` isn’t arriving: confirm `WEBHOOK_URL` is reachable and (if using the built-in receiver) include `Authorization: Bearer $LOGS_API_KEY`.
 
 ## Built-in Webhook Receiver and Call Logs (recommended)
 
@@ -185,6 +201,8 @@ Both endpoints require:
 
 `Authorization: Bearer <LOGS_API_KEY>`
 
+> **Note:** `LOGS_API_KEY` is a static bearer token — fine for dev/testing but not suitable for production without additional rate limiting or access controls.
+
 Recommended local setup for faster iteration:
 
 1. Set `WEBHOOK_URL` to your own worker’s `.../webhook/collect-info` endpoint.
@@ -194,7 +212,7 @@ Recommended local setup for faster iteration:
 
 Set `BASE_URL` to one of:
 
-- Local: `http://localhost:8787`
+- Local: `http://localhost:<port-from-wrangler-dev>` (often `http://localhost:8787`)
 - Deployed: the `workers.dev` URL you see from `wrangler deploy`
 
 1. POST a sample payload:
@@ -220,6 +238,15 @@ curl -X POST "$BASE_URL/webhook/collect-info" \
 curl "$BASE_URL/call-log/CA_TEST_123" \
   -H "Authorization: Bearer $LOGS_API_KEY"
 ```
+
+## Customizing the Agent
+
+Edit the two constants at the top of `agent.ts`:
+
+- **`GREETING`** — spoken aloud as soon as the call connects, before the caller says anything.
+- **`SYSTEM_PROMPT`** — tells the LLM how to behave, what tools to use, and when.
+
+No env vars, no redeploy config — just edit the code and deploy.
 
 ## Tools
 
@@ -248,12 +275,23 @@ Transfers the live call to `FORWARD_NUMBER` via Twilio's REST API. The caller he
 ## Project Structure
 
 ```
-index.ts         Worker entry + Hono routes (TwiML endpoint, agent routing)
-agent.ts         Durable Object voice agent (OpenAI Realtime session)
-tools.ts         collect_info + forward_call tool definitions
-types.ts         TypeScript types for env bindings
-.nvmrc           Pins Node.js version
+index.ts             Worker entry + Hono routes (TwiML, webhook, logs, agent routing)
+agent.ts             Durable Object voice agent (OpenAI Realtime session)
+tools.ts             collect_info + forward_call tool definitions
+call-log-store.ts    LRU-bounded call log storage (Durable Object)
+types.ts             TypeScript types for env bindings + DO stubs
+.nvmrc               Pins Node.js version
 ```
+
+## Cost
+
+This example uses **OpenAI Realtime API**, which bills per minute of audio. At time of writing, expect roughly **$0.06/min input + $0.24/min output** (voice). A 2-minute test call costs ~$0.60. Check [OpenAI's pricing page](https://openai.com/api/pricing/) for current rates.
+
+## Known Limitations
+
+- **No call recording or transcript** — OpenAI Realtime processes audio in real-time but doesn't persist recordings. Add Twilio's `<Record>` in TwiML or a third-party service if you need this.
+- **No conversation memory across calls** — each call is a fresh session. `CallLogStore` stores structured tool output, not full transcripts.
+- **`CallLogStore` is a plain Durable Object** — it doesn't extend `Agent` from the agents SDK. This is intentional (it's just a key-value store), but means it doesn't benefit from the agents SDK lifecycle hooks.
 
 ## License
 

@@ -2,8 +2,18 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "phoneline",
   "main": "index.ts",
-  "compatibility_date": "2025-03-10",
+  "compatibility_date": "2026-01-28",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": [
+      "OPENAI_API_KEY",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "WEBHOOK_URL",
+      "FORWARD_NUMBER"
+    ]
+  },
+  "observability": { "enabled": true },
   "durable_objects": {
     "bindings": [
       {
@@ -20,6 +30,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["VoiceAgent"]
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["CallLogStore"]
     }
   ]
 }
